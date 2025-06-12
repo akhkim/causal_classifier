@@ -1,62 +1,89 @@
 import pandas as pd
+import networkx as nx
 from classifier import recommend_causal_estimator
 from causallearn.search.ConstraintBased.PC import pc
 from causallearn.search.ConstraintBased.FCI import fci
 from causallearn.utils.cit import fisherz
 from causallearn.utils.GraphUtils import GraphUtils
-from algorithms import backdoor_adjustment, g_computation, propensity_score, double_machine_learning, iv, rdd, did, ols, frontdoor_adjustment
+from causallearn.graph.Endpoint import Endpoint
+from networkx.drawing.nx_pydot import from_pydot
+from inference_algorithms import g_computation, propensity_score, double_machine_learning, iv, rdd, did, ols, frontdoor_adjustment
 
-data = pd.read_csv('data.csv')
-
-# Edit the following variables
-treatment = data['treatment']
-outcome = data['outcome']
+data = pd.read_csv('iv_causal.csv')
+treatment = 'v0'
+outcome = 'y'
+assignment_style = 'observational' # 'observational', 'randomized', 'cutoff', or 'none'
 effect = 'ate' # 'ate', 'att', or 'cate'
-assignment_style = 'randomized' # 'randomized', 'observational', 'cutoff', or 'none'
-latent_confouners = False # True or False
-
+latent_confounders = True  # Set to True if latent confounders are present
 ml_Q = None # For DML, scikit-learn estimator for Q-model
 ml_g = None # For DML, scikit-learn estimator for g-model
 n_splits = 5 # For DML
 running_variable = None # For RDD
 cutoff_value = None # For RDD
 time_variable = None # For DiD
-group_variable = None # For DiD
 
-alpha = 0.05  # Significance level for the causal discovery algorithm
-
-# Create a DAG
-if latent_confouners:
-    cg = fci(data.values, alpha, ci_test=fisherz)
+# Causal discovery
+alpha = 0.05
+if latent_confounders:
+    cg, _ = fci(data.values, alpha=alpha, ci_test=fisherz)
 else:
-    cg = pc(data.values, alpha, ci_test=fisherz)
-nx_graph = GraphUtils.to_nx_graph(cg.G, labels=list(data.columns))
+    cg = pc(data.values, alpha=alpha, ci_test=fisherz)
 
-parents_A = set(nx_graph.predecessors(treatment))
-parents_Y = set(nx_graph.predecessors(outcome))
-covariates = list((parents_A & parents_Y) - {treatment, outcome})
+def cl_to_nx(causal_graph, names):
+    graph = cg.G if hasattr(cg, "G") else cg   # pc-graph vs. fci-graph
 
-result = recommend_causal_estimator(treatment, outcome, covariates, assignment_style, latent_confouners, alpha, nx_graph, cutoff_value)
+    # 3.  grab the edge list (API changed once)
+    edges = (graph.get_graph_edges()           # ≥ 0.3.x
+             if hasattr(graph, "get_graph_edges")
+             else graph.get_edges())           # ≤ 0.2.x
+
+    G = nx.DiGraph()
+    G.add_nodes_from(names)
+
+    for e in edges:
+        a, b = e.get_node1().get_name(), e.get_node2().get_name()
+        e1, e2 = e.get_endpoint1(),       e.get_endpoint2()
+
+        if   e1 == Endpoint.TAIL  and e2 == Endpoint.ARROW:  # a → b
+            G.add_edge(a, b)
+        elif e1 == Endpoint.ARROW and e2 == Endpoint.TAIL:   # b → a
+            G.add_edge(b, a)
+        # other endpoint patterns (—, ↔, ◦) can be added here as needed
+
+    return G
+
+nx_graph = cl_to_nx(cg, list(data.columns))
+sample_size = data.shape[0]
+covariates = list(set(nx_graph.nodes) - {treatment, outcome})
+
+# Get recommendation
+result = recommend_causal_estimator(
+    treatment,
+    outcome,
+    covariates,
+    nx_graph,
+    sample_size,
+    assignment_style,
+    latent_confounders,
+    cutoff_value,
+    time_variable
+)
 
 algorithm = result['recommendation']
-instrument = result['instrument']
-mediator = result['mediator']
+if result.get('mediators'):
+    mediator = result['mediators']
+if result.get('instruments'):
+    instruments = result['instruments']
+if result.get('adjustment_set'):
+    adjustment_set = result['adjustment_set']
 
-match algorithm:
-    case 'backdoor adjustment':
-        estimate = backdoor_adjustment(
-            data,
-            treatment,
-            outcome,
-            covariates,
-            effect
-        )
+match result["recommendation"]:
     case 'g computation':
         estimate = g_computation(
             data,
             treatment,
             outcome,
-            covariates,
+            adjustment_set,
             effect
         )
     case 'propensity score':
@@ -64,7 +91,7 @@ match algorithm:
             data,
             treatment,
             outcome,
-            covariates,
+            adjustment_set,
             effect
         )
     case 'double machine learning':
@@ -72,7 +99,7 @@ match algorithm:
             data,
             treatment,
             outcome,
-            covariates,
+            adjustment_set,
             ml_Q,
             ml_g,
             n_splits
@@ -82,7 +109,7 @@ match algorithm:
             data,
             treatment,
             outcome,
-            instrument,
+            instruments,
             covariates
         )
     case 'regression discontinuity design':
@@ -107,14 +134,16 @@ match algorithm:
         estimate = ols(
             data,
             treatment,
-            outcome
+            outcome,
+            adjustment_set
         )
     case 'frontdoor adjustment':
         estimate = frontdoor_adjustment(
             data,
             treatment,
             mediator,
-            outcome
+            outcome,
+            adjustment_set
         )
     case _:
-        raise ValueError(f"Unknown algorithm: {algorithm}")
+        print(algorithm)

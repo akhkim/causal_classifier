@@ -1,63 +1,130 @@
 import networkx as nx
+from itertools import combinations
 
-def recommend_causal_estimator(
-    treatment,
-    outcome,
-    covariates,
-    assignment_style='none',
-    latent_confounders=False,
-    dag=None,
-    cutoff_value=None,
-    time_variable=None,
-    group_variable=None
-):
-    treat_name = treatment.name if hasattr(treatment, 'name') else treatment
-    outcome_name = outcome.name if hasattr(outcome, 'name') else outcome
-    instrument_var = None
-    mediator_var = None
+def find_backdoor_set(dag, treatment, outcome, covariates):
+    bd_graph = dag.copy()
+    bd_graph.remove_edges_from(list(bd_graph.out_edges(treatment)))
+
+    # Search for the smallest d-separator that contains no descendants of X
+    for k in range(len(covariates) + 1):
+        for Z in combinations(covariates, k):
+            if set(Z) & nx.descendants(dag, treatment):
+                continue
+            if nx.d_separated(bd_graph, {treatment}, {outcome}, set(Z)):
+                return set(Z)
+    return None
+
+def find_frontdoor_set(dag, treatment, outcome):
+    frontdoor_candidates = set()
+    
+    # Find all mediators on directed paths from treatment to outcome
+    for path in nx.all_simple_paths(dag, treatment, outcome):
+        if len(path) > 2:
+            frontdoor_candidates.update(path[1:-1])
+    
+    # Check frontdoor criteria using d-separation
+    valid_mediators = []
+    for m in frontdoor_candidates:
+        if (nx.d_separated(dag, {treatment}, {outcome}, {m}) and
+            not nx.d_separated(dag, {treatment}, {m}, set()) and
+            nx.d_separated(dag, {m}, {outcome}, {treatment})):
+            valid_mediators.append(m)
+    
+    return valid_mediators
+
+def find_instruments(dag, treatment, outcome):
+    latent_pairs = []
+    g = dag.copy()
+
+    # For every pair (A,B) that shares an un-observed cause,
+    # create a fresh latent node U_(A,B)  →  {A, B}.
+    for a, b in latent_pairs:
+        latent_name = f"U_{a}_{b}"
+        if latent_name in g:
+            continue
+        g.add_node(latent_name, latent=True)
+        g.add_edge(latent_name, a)
+        g.add_edge(latent_name, b)
+
+    instruments = []
+    for node in g.nodes:
+        if node in {treatment, outcome} or g.nodes[node].get("latent", False):
+            continue
+
+        # IV independence:  Z ⫫ Y | X   (no open back-door once we intervene on X)
+        ind_cond  = nx.is_d_separator(g, {node}, {outcome}, {treatment})
+
+        # Relevance:  Z ∦ X              (a path from Z to X is still open)
+        rel_cond  = not nx.is_d_separator(g, {node}, {treatment}, set())
+
+        if ind_cond and rel_cond:
+            instruments.append(node)
+
+    return instruments
+
+
+def recommend_causal_estimator(treatment, outcome, covariates, dag, sample_size,
+                              assignment_style, latent_confounders,
+                              cutoff_value, time_variable):
 
     if assignment_style == 'randomized':
-        rec = 'ols'
-    elif assignment_style == 'cutoff' or cutoff_value is not None:
-        rec = 'regression discontinuity design'
-    elif time_variable and group_variable:
-        rec = 'did'
-    else:
-        if dag is not None:
-            for z in dag.predecessors(treat_name):
-                if z in {treat_name, outcome_name}:
-                    continue
-                g2 = dag.copy()
-                g2.remove_node(treat_name)
-                if not nx.has_path(g2, z, outcome_name):
-                    instrument_var = z
-                    break
-            if instrument_var is None:
-                for m in dag.successors(treat_name):
-                    if nx.has_path(dag, m, outcome_name):
-                        mediator_var = m
-                        break
-        if assignment_style in ('observational','none'):
-            if latent_confounders:
-                if instrument_var:
-                    rec = 'instrumental variables'
-                elif mediator_var:
-                    rec = 'frontdoor adjustment'
-                else:
-                    return "No valid recommendation available due to latent confounders."
-            else:
-                num_cov = len(covariates or [])
-                if num_cov <= 2:
-                    rec = 'backdoor adjustment'
-                elif num_cov <= 5:
-                    rec = 'g computation'
-                elif num_cov <= 10:
-                    rec = 'propensity score'
-                else:
-                    rec = 'double machine learning'
+        return {'recommendation': 'RCT'}
+    
+    if cutoff_value is not None:
+        return {'recommendation': 'RDD'}
+    
+    if time_variable:
+        return {'recommendation': 'DiD'}
 
-    return {
-        'recommendation': rec,
-        'instrument': instrument_var,
-        'mediator': mediator_var
-    }
+    instruments = find_instruments(dag, treatment, outcome)
+    if len(instruments) > 0:
+        return {'recommendation': 'IV',
+                'instruments': instruments
+        }
+    
+    mediators = find_frontdoor_set(dag, treatment, outcome)
+    if len(mediators) > 0:
+        return {
+            'recommendation': 'Frontdoor Adjustment',
+            'mediators': mediators
+        }
+
+    # Backdoor Adjustment Algorithms
+    backdoor_set = find_backdoor_set(dag, treatment, outcome, covariates)
+    if backdoor_set:
+        backdoor_size = len(backdoor_set)
+        observations_per_variable = sample_size / backdoor_size
+
+        # 4a. small, low-dimensional ⇒ OLS regression
+        # Justification: Regression models recommend N ≥ 25 for stable inference with higher variance
+        if observations_per_variable >= 25:
+            return {
+                'recommendation': 'OLS Regression',
+                'adjustment_set': backdoor_set
+            }
+
+        # 4b. moderate dimension ⇒ propensity-score methods
+        # Justification: Propensity score can reduce dimensionality and Events Per Variable (EPV) suggests 15-25 observations per variable
+        elif 15 <= observations_per_variable < 25:
+            return {
+                'recommendation': 'Propensity Score Methods',
+                'adjustment_set': backdoor_set
+            }
+
+        # 4c. high dimension with ample observations ⇒ Double ML
+        # Justification: High dimensionality causes DML to function better than the others, and cross fitting can help with overfitting
+        elif sample_size >= 500:
+            return {
+                'recommendation': 'Double Machine Learning',
+                'adjustment_set': backdoor_set
+            }
+
+        # 4d. fallback parametric g-formula
+        # Justification: Most broadly applicable, but vulnerable to model misspecification
+        return {
+            'recommendation': 'G Computation',
+            'adjustment_set': backdoor_set
+        }
+
+    else:
+        return {'recommendation': 'No valid recommendation available due to latent confounders.'}
