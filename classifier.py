@@ -51,10 +51,10 @@ def find_instruments(dag, treatment, outcome):
         if node in {treatment, outcome} or g.nodes[node].get("latent", False):
             continue
 
-        # IV independence:  Z ⫫ Y | X   (no open back-door once we intervene on X)
+        # IV independence:  Z ⫫ Y | X (no open back-door once we intervene on X)
         ind_cond  = nx.is_d_separator(g, {node}, {outcome}, {treatment})
 
-        # Relevance:  Z ∦ X              (a path from Z to X is still open)
+        # Relevance:  Z ∦ X (a path from Z to X is still open)
         rel_cond  = not nx.is_d_separator(g, {node}, {treatment}, set())
 
         if ind_cond and rel_cond:
@@ -90,41 +90,42 @@ def recommend_causal_estimator(treatment, outcome, covariates, dag, sample_size,
         }
 
     # Backdoor Adjustment Algorithms
-    backdoor_set = find_backdoor_set(dag, treatment, outcome, covariates)
-    if backdoor_set:
-        backdoor_size = len(backdoor_set)
-        observations_per_variable = sample_size / backdoor_size
+    if not latent_confounders:
+        backdoor_set = find_backdoor_set(dag, treatment, outcome, covariates)
+        if backdoor_set:
+            backdoor_size = len(backdoor_set)
+            observations_per_variable = sample_size / backdoor_size
 
-        # 4a. small, low-dimensional ⇒ OLS regression
-        # Justification: Regression models recommend N ≥ 25 for stable inference with higher variance
-        if observations_per_variable >= 25:
+            # 4a. small, low-dimensional ⇒ OLS regression
+            # Justification: Regression models recommend N ≥ 25 for stable inference with higher variance
+            if observations_per_variable >= 25:
+                return {
+                    'recommendation': 'OLS',
+                    'adjustment_set': backdoor_set
+                }
+
+            # 4b. moderate dimension ⇒ propensity-score methods
+            # Justification: Propensity score can reduce dimensionality and Events Per Variable (EPV) suggests 15-25 observations per variable
+            elif 15 <= observations_per_variable < 25:
+                return {
+                    'recommendation': 'Propensity Score',
+                    'adjustment_set': backdoor_set
+                }
+
+            # 4c. high dimension with ample observations ⇒ Double ML
+            # Justification: High dimensionality causes DML to function better than the others, and cross fitting can help with overfitting
+            elif sample_size >= 500:
+                return {
+                    'recommendation': 'DML',
+                    'adjustment_set': backdoor_set
+                }
+
+            # 4d. fallback parametric g-formula
+            # Justification: Most broadly applicable, but vulnerable to model misspecification
             return {
-                'recommendation': 'OLS Regression',
+                'recommendation': 'G Computation',
                 'adjustment_set': backdoor_set
             }
-
-        # 4b. moderate dimension ⇒ propensity-score methods
-        # Justification: Propensity score can reduce dimensionality and Events Per Variable (EPV) suggests 15-25 observations per variable
-        elif 15 <= observations_per_variable < 25:
-            return {
-                'recommendation': 'Propensity Score Methods',
-                'adjustment_set': backdoor_set
-            }
-
-        # 4c. high dimension with ample observations ⇒ Double ML
-        # Justification: High dimensionality causes DML to function better than the others, and cross fitting can help with overfitting
-        elif sample_size >= 500:
-            return {
-                'recommendation': 'Double Machine Learning',
-                'adjustment_set': backdoor_set
-            }
-
-        # 4d. fallback parametric g-formula
-        # Justification: Most broadly applicable, but vulnerable to model misspecification
-        return {
-            'recommendation': 'G Computation',
-            'adjustment_set': backdoor_set
-        }
 
     else:
-        return {'recommendation': 'No valid recommendation available due to latent confounders.'}
+        return {'recommendation': 'No valid recommendation available.'}
