@@ -126,6 +126,5 @@ def recommend_causal_estimator(treatment, outcome, covariates, dag, sample_size,
                 'recommendation': 'G Computation',
                 'adjustment_set': backdoor_set
             }
-
-    else:
-        return {'recommendation': 'No valid recommendation available.'}
+        
+    return {'recommendation': 'No valid recommendation available.'}

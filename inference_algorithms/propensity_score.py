@@ -2,7 +2,7 @@ import numpy as np
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
-def propensity_score(
+def estimate(
     data,
     treatment,
     outcome,

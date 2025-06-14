@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.base import clone
 from sklearn.linear_model import LinearRegression
 
-def g_computation(
+def estimate(
     data,
     treatment,
     outcome,

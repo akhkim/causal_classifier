@@ -1,6 +1,6 @@
 import statsmodels.api as sm
 
-def iv(
+def estimate(
     data, 
     treatment, 
     outcome, 

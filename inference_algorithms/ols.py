@@ -1,6 +1,6 @@
 import statsmodels.formula.api as smf
 
-def ols(data,
+def estimate(data,
         treatment,
         outcome,
         adjustment_set

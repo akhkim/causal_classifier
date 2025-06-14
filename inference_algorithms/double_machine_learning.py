@@ -4,20 +4,22 @@ from sklearn.base import clone
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 
-def double_machine_learning_aiptw(
+def estimate(
     data,
     treatment,
     outcome,
     covariates,
-    ml_Q,
-    ml_g,
-    n_splits
+    sample_size
 ):
-    # Set default nuisance learners if not provided
-    ml_Q = ml_Q or RandomForestRegressor(n_estimators=100)
-    ml_g = ml_g or LogisticRegression(solver='lbfgs', max_iter=1000)
-
-    # Extract arrays
+    ml_Q = RandomForestRegressor(n_estimators=100)
+    ml_g = LogisticRegression(solver='lbfgs', max_iter=1000)
+    if sample_size < 100:
+        n_splits = sample_size
+    elif 100 <= sample_size < 500:
+        n_splits = 20
+    else:
+        n_splits = 10
+    
     T = data[treatment].values
     Y = data[outcome].values
     X = data[covariates].values
@@ -69,7 +71,7 @@ def double_machine_learning_aiptw(
 # from doubleml import DoubleMLPLR
 
 
-# def double_machine_learning(data, treatment, outcome, covariates, ml_Q=None, ml_g=None, n_splits=5):
+# def double_machine_learning(data, treatment, outcome, covariates):
 #     dml_data = DoubleMLPLR(
 #         pd.DataFrame(data),
 #         y_col=outcome,

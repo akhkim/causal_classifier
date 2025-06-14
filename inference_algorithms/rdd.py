@@ -1,6 +1,6 @@
 import statsmodels.formula.api as smf
 
-def rdd(data,
+def estimate(data,
         outcome,
         running_variable,
         cutoff,

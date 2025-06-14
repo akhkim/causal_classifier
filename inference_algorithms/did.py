@@ -1,6 +1,6 @@
 import statsmodels.formula.api as smf
 
-def difference_in_differences(data,
+def estimate(data,
                               treatment,
                               outcome,
                               time_variable,

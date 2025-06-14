@@ -1,6 +1,7 @@
+import numpy as np
 import pandas as pd
 import networkx as nx
-import numpy as np
+from llama_cpp import Llama
 from classifier import recommend_causal_estimator
 from causallearn.search.ConstraintBased.PC import pc
 from causallearn.search.ConstraintBased.FCI import fci
@@ -9,14 +10,27 @@ from causallearn.graph.Endpoint import Endpoint
 from inference_algorithms import g_computation, propensity_score, double_machine_learning, iv, rdd, did, ols, frontdoor_adjustment
 
 data = pd.read_csv('ajrcomment.csv')
-treatment = 'risk'
-outcome = 'loggdp'
+context = data.head(3).to_string(index=False)
+
+llm = Llama(model_path="Llama-3.1-8B-Instruct-BF16.gguf", verbose=False, n_ctx=2048, chat_format="llama-3")
+question = "How does institutional risk impact the GDP?"
+
+treatment = llm.create_chat_completion(
+    messages=[
+        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **treatment variable** — the variable being manipulated or used as the cause in a causal question. Be sure to choose the **single most appropriate column name** that best represents the treatment, and your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words. For example, if the question asks how does rain impact temperature, your response should be the column name most closely related to rain."},
+        {"role": "user", "content": question}
+    ]
+)['choices'][0]['message']['content']
+outcome = llm.create_chat_completion(
+    messages=[
+        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **outcome variable** — the variable that is affected or influenced by the treatment in a question. Be sure to choose the **single most appropriate column name** that best represents the outcome, and your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words. For example, if the question asks how does rain impact temperature, your response should be the column name most closely related to temperature."},
+        {"role": "user", "content": question}
+    ]
+)['choices'][0]['message']['content']
+
 assignment_style = 'observational' # 'observational', 'randomized', 'cutoff', or 'none'
 effect = 'ate' # 'ate', 'att', or 'cate'
 latent_confounders = False  # Set to True if latent confounders are present
-ml_Q = None # For DML, scikit-learn estimator for Q-model
-ml_g = None # For DML, scikit-learn estimator for g-model
-n_splits = 5 # For DML
 running_variable = None # For RDD
 cutoff_value = None # For RDD
 time_variable = None # For DiD
@@ -87,7 +101,7 @@ if result.get('adjustment_set'):
 
 match result["recommendation"]:
     case 'G Computation':
-        estimate = g_computation(
+        estimate = g_computation.estimate(
             data,
             treatment,
             outcome,
@@ -95,7 +109,7 @@ match result["recommendation"]:
             effect
         )
     case 'Propensity Score':
-        estimate = propensity_score(
+        estimate = propensity_score.estimate(
             data,
             treatment,
             outcome,
@@ -103,17 +117,15 @@ match result["recommendation"]:
             effect
         )
     case 'DML':
-        estimate = double_machine_learning(
+        estimate = double_machine_learning.estimate(
             data,
             treatment,
             outcome,
             adjustment_set,
-            ml_Q,
-            ml_g,
-            n_splits
+            sample_size
         )
     case 'IV':
-        estimate = iv(
+        estimate = iv.estimate(
             data,
             treatment,
             outcome,
@@ -121,7 +133,7 @@ match result["recommendation"]:
             covariates
         )
     case 'RDD':
-        estimate = rdd(
+        estimate = rdd.estimate(
             data,
             outcome,
             running_variable,
@@ -131,7 +143,7 @@ match result["recommendation"]:
             bandwidth=None
         )
     case 'DiD':
-        estimate = did(
+        estimate = did.estimate(
             data,
             treatment,
             outcome,
@@ -139,14 +151,14 @@ match result["recommendation"]:
             covariates
         )
     case 'OLS':
-        estimate = ols(
+        estimate = ols.estimate(
             data,
             treatment,
             outcome,
             adjustment_set
         )
     case 'Frontdoor Adjustment':
-        estimate = frontdoor_adjustment(
+        estimate = frontdoor_adjustment.estimate(
             data,
             treatment,
             mediator,
