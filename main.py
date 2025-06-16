@@ -2,18 +2,22 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from llama_cpp import Llama
-from classifier import recommend_causal_estimator
-from causallearn.search.ConstraintBased.PC import pc
-from causallearn.search.ConstraintBased.FCI import fci
+import statsmodels.formula.api as smf
 from causallearn.utils.cit import fisherz
 from causallearn.graph.Endpoint import Endpoint
+from classifier import recommend_inference_algorithm
+from causallearn.search.ConstraintBased.PC import pc
+from causallearn.search.ConstraintBased.FCI import fci
 from inference_algorithms import g_computation, propensity_score, double_machine_learning, iv, rdd, did, ols, frontdoor_adjustment
 
 data = pd.read_csv('ajrcomment.csv')
 context = data.head(3).to_string(index=False)
-
 llm = Llama(model_path="Llama-3.1-8B-Instruct-BF16.gguf", verbose=False, n_ctx=2048, chat_format="llama-3")
+
+# Variables the user has to provide
 question = "How does institutional risk impact the GDP?"
+assignment_style = 'observational' # 'observational', 'randomized'
+latent_confounders = False  # Set to True if latent confounders are present
 
 treatment = llm.create_chat_completion(
     messages=[
@@ -27,13 +31,24 @@ outcome = llm.create_chat_completion(
         {"role": "user", "content": question}
     ]
 )['choices'][0]['message']['content']
+time_variable = llm.create_chat_completion(
+    messages=[
+        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **time variable** — the (often binary) variable used for DiD that represents whether the observation is from before or after the implementation of the policy. Be sure to reply **None** if no variable seems appropriate, or choose the **single most appropriate column name** that best represents the outcome. Your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words."},
+        {"role": "user", "content": "What is the time variable in the data? Reply None if there is no time variable."}
+    ]
+)['choices'][0]['message']['content']
+group_variable = llm.create_chat_completion(
+    messages=[
+        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **group variable** — the (often binary) variable used for DiD that represents whether the observation is part of the control or treatment group. Be sure to reply **None** if no variable seems appropriate, or choose the **single most appropriate column name** that best represents the outcome. Your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words."},
+        {"role": "user", "content": "What is the group variable in the data? Reply None if there is no group variable."}
+    ]
+)['choices'][0]['message']['content']
 
-assignment_style = 'observational' # 'observational', 'randomized', 'cutoff', or 'none'
-effect = 'ate' # 'ate', 'att', or 'cate'
-latent_confounders = False  # Set to True if latent confounders are present
-running_variable = None # For RDD
-cutoff_value = None # For RDD
-time_variable = None # For DiD
+
+# Try to automate
+running_variable = "None" # For RDD. Try LoRD3
+cutoff_value = "None" # For RDD. Try LoRD3
+
 
 # Data preprocessing (Drop non-numeric columns and missing values, and columns with high correlation)
 numeric_data = data.select_dtypes(include=[np.number])
@@ -79,7 +94,8 @@ nx_graph = cl_to_nx(list(numeric_data.columns))
 sample_size = data.shape[0]
 covariates = list(set(nx_graph.nodes) - {treatment, outcome})
 
-result = recommend_causal_estimator(
+result = recommend_inference_algorithm(
+    data,
     treatment,
     outcome,
     covariates,
@@ -88,7 +104,8 @@ result = recommend_causal_estimator(
     assignment_style,
     latent_confounders,
     cutoff_value,
-    time_variable
+    time_variable,
+    group_variable
 )
 
 algorithm = result['recommendation']
@@ -105,16 +122,14 @@ match result["recommendation"]:
             data,
             treatment,
             outcome,
-            adjustment_set,
-            effect
+            adjustment_set
         )
     case 'Propensity Score':
         estimate = propensity_score.estimate(
             data,
             treatment,
             outcome,
-            adjustment_set,
-            effect
+            adjustment_set
         )
     case 'DML':
         estimate = double_machine_learning.estimate(
@@ -148,6 +163,7 @@ match result["recommendation"]:
             treatment,
             outcome,
             time_variable,
+            group_variable,
             covariates
         )
     case 'OLS':
@@ -162,6 +178,13 @@ match result["recommendation"]:
             data,
             treatment,
             mediator,
+            adjustment_set,
+            outcome
+        )
+    case 'RCT':
+        estimate = ols.estimate(
+            data,
+            treatment,
             outcome,
             adjustment_set
         )

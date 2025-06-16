@@ -1,5 +1,6 @@
 import networkx as nx
 from itertools import combinations
+from inference_algorithms import rdd, did
 
 def find_backdoor_set(dag, treatment, outcome, covariates):
     bd_graph = dag.copy()
@@ -63,17 +64,17 @@ def find_instruments(dag, treatment, outcome):
     return instruments
 
 
-def recommend_causal_estimator(treatment, outcome, covariates, dag, sample_size,
+def recommend_inference_algorithm(data, treatment, outcome, covariates, dag, sample_size,
                               assignment_style, latent_confounders,
-                              cutoff_value, time_variable):
+                              cutoff_value, time_variable, group_variable):
 
     if assignment_style == 'randomized':
         return {'recommendation': 'RCT'}
     
-    if cutoff_value is not None:
+    if cutoff_value != "None" and rdd.diagnose(dag, treatment, outcome, cutoff_value, covariates):
         return {'recommendation': 'RDD'}
     
-    if time_variable:
+    if time_variable != "None" and did.diagnose(data, group_variable, time_variable, treatment, outcome):
         return {'recommendation': 'DiD'}
 
     instruments = find_instruments(dag, treatment, outcome)
