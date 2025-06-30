@@ -1,29 +1,37 @@
-from econml.dr import IPW
+import numpy as np
+from causalml.propensity import ElasticNetPropensityModel
 
-def estimate(
-    data,
-    treatment,
-    outcome,
-    covariates
-):
-    Y = data[outcome].values
-    T = data[treatment].values
-    X = data[covariates]
-    ipw = IPW(model_propensity='auto')
-    ipw.fit(Y, T, X=X)
+def estimate(data, treatment, outcome, covariates,
+             n_fold=5, clip=(1e-3, 1-1e-3), random_state=42):
+    # 1. Extract arrays
+    Y = data[outcome].to_numpy()
+    T = data[treatment].to_numpy()
+    X = data[covariates].to_numpy()
 
-    ate_est = ipw.ate(X)
-    ate_se = ipw.ate_std(X)
-    att_est = ipw.att(X)
-    att_se = ipw.att_std(X)
-    
+    # 2. Fit propensity-score model (elastic-net CV logistic regression)
+    pm = ElasticNetPropensityModel(n_fold=n_fold,
+                                   random_state=random_state,
+                                   clip_bounds=clip)
+    p_hat = pm.fit_predict(X, T)
+
+    # 4. ATE
+    ate_scores = T * Y / p_hat - (1 - T) * Y / (1 - p_hat)
+    ate = ate_scores.mean()
+    ate_se = ate_scores.std(ddof=1) / np.sqrt(len(Y))
+
+    # 5. ATT
+    att_scores = (T - p_hat) * Y / p_hat
+    att = att_scores.mean()
+    att_se = att_scores.std(ddof=1) / np.sqrt(len(Y))
+
     return {
-        'ATE': float(ate_est),
-        'ATE_std_error': float(ate_se),
-        'ATT': float(att_est),
-        'ATT_std_error': float(att_se),
-        'model': ipw
+        "ATE": float(ate),
+        "ATE_std_error": float(ate_se),
+        "ATT": float(att),
+        "ATT_std_error": float(att_se),
+        "model": pm
     }
+
 
 
 # import numpy as np

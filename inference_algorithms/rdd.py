@@ -1,4 +1,4 @@
-from rdd import RDD
+import rdd
 from scipy import stats
 
 def estimate(data,
@@ -7,7 +7,7 @@ def estimate(data,
         cutoff_value,
         bandwidth=0.25
 ):
-    rdd_obj = RDD(
+    rdd_obj = rdd.rdd(
         data,
         outcome_col=outcome,
         running_col=running_variable,
