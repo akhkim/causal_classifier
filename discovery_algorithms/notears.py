@@ -3,7 +3,7 @@ import networkx as nx
 
 def run(
     df,
-    lambda1=0.01,
+    lambda1=0.05,
     max_iter=100,
     w_threshold=0.3
 ):
@@ -13,7 +13,8 @@ def run(
     W = notears_linear(
         X,
         lambda1=lambda1,
-        max_iter=max_iter
+        max_iter=max_iter,
+        loss_type='l2'
     )  # W_{i,j} = effect i → j  [1]
 
     dag = nx.DiGraph()

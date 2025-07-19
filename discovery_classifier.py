@@ -7,26 +7,16 @@ from statsmodels.stats.diagnostic import normal_ad
 from discovery_algorithms import cgnn, fci, ges, pc, lingam, notears
 import torch
 
-def _chi2_goodness_of_fit(series, dist_name, params):
-    x = series.values
-    values, counts = np.unique(x, return_counts=True)
-    n = len(series)
-    dist = getattr(stats, dist_name)
-    if dist_name == "binom":
-        k, p = params
-        expected = dist.pmf(values, k, p) * n
-    else:
-        expected = dist.pmf(values, *params) * n
-    expected = np.maximum(expected, 1e-9)
-    chi2 = ((counts - expected) ** 2 / expected).sum()
-    df_chi = max(len(values) - 1 - len(params), 1)
-    p_val = 1 - stats.chi2.cdf(chi2, df_chi)
-    return p_val
-
 def detect_likelihood(df):
+    # If the dataframe is large, sample 100 rows at random
+    if df.shape[0] > 100:
+        df_sample = df.sample(n=100, random_state=0)
+    else:
+        df_sample = df
+
     cats, nums = [], []
-    for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]):
+    for col in df_sample.columns:
+        if pd.api.types.is_numeric_dtype(df_sample[col]):
             nums.append(col)
         else:
             cats.append(col)
@@ -35,11 +25,12 @@ def detect_likelihood(df):
 
     # Continuous variables
     for col in nums:
-        data = df[col].dropna().values
-        f = Fitter(data, distributions=["norm", "gamma", "expon", "laplace"], timeout=30)
+        data = df_sample[col].dropna().values
+        # Try fitting various distributions
+        f = Fitter(data, distributions=["norm", "expon", "laplace"], timeout=30)
         f.fit()
         best_name = f.get_best(method="sumsquare_error").popitem()[0]
-        
+
         if best_name == "norm":
             ad_stat, p_val = normal_ad(data)
         else:
@@ -55,24 +46,24 @@ def detect_likelihood(df):
         winners.append(best_name)
         pvals.append(p_val)
 
-    # Discrete variables
+    # Discrete variables: label simply as "discrete" and p-value of 1
     for col in cats:
         winners.append("discrete")
-        pvals.append(1)
+        pvals.append(1.0)
 
+    # Determine the most common family and check goodness-of-fit
     freq = Counter(winners)
     best_family, count = freq.most_common(1)[0]
     agree_ratio = count / len(winners)
     good_pvals = all(p > 0.05 for p in pvals)
-
     trust = (agree_ratio >= 0.8) and good_pvals
 
     return {
         "trust_likelihood": trust,
         "suggested_family": best_family if trust else None,
         "agreement_ratio": agree_ratio,
-        "goodness_ok": good_pvals,    # Goodness of fit p-values
-        "per_variable": dict(zip(df.columns, winners)),
+        "goodness_ok": good_pvals,  # all goodness-of-fit p-values > 0.05
+        "per_variable": dict(zip(df_sample.columns, winners))
     }
 
 def recommend_discovery_algorithm(df, latent_confounders):
@@ -82,18 +73,18 @@ def recommend_discovery_algorithm(df, latent_confounders):
 
     if latent_confounders:
         return "FCI"  # Constraint-based search for latent confounders
-    if distribution == "discrete":
-        return "GES"
-    elif distribution != "norm":
-        return "LiNGAM"
-    elif distribution == "norm":
-        if large_sample:
+    if distribution != "norm":
+        if distribution == "discrete":
             return "GES"
+        return "LiNGAM" if large_sample else "CGNN"
+    if distribution == "norm":
+        if large_sample:
+            return "PC"
         return "NOTEARS"
     else:
         if torch.cuda.is_available():
             return "CGNN"  # Runs on minimal assumptions, and can handle non-linearity (most flexible on scarce data)
-        return "PC"  # Use PC for small samples, as it is more robust to violations of assumptions
+        return "NOTEARS"  # Use PC for small samples, as it is more robust to violations of assumptions
 
 def run_discovery_algorithm(df, latent_confounders):
     algorithm = recommend_discovery_algorithm(df, latent_confounders)
@@ -118,8 +109,7 @@ def run_discovery_algorithm(df, latent_confounders):
             )
         case "LiNGAM":
             return lingam.run(
-                df,
-                max_iter=1000
+                df
             )
         case "NOTEARS":
             return notears.run(

@@ -1,92 +1,78 @@
-import llm_query, LoRD3
 import numpy as np
 import pandas as pd
-from inference_classifier import run_inference_algorithm
+import networkx as nx
+from llm_query import parse_intent
+from inference_classifier import run_inference_algorithm, recommend_inference_algorithm, match_algorithm
 from discovery_classifier import run_discovery_algorithm
+from causallearn.search.ConstraintBased.PC import pc
+from causallearn.utils.cit import kci
+from discovery_algorithms import fci
+from causallearn.utils.PDAG2DAG import pdag2dag
+from discovery_algorithms import notears
+from preprocessing import full_preprocess
 
 # Variables the user has to provide
-data = pd.read_csv('compulsory_school.csv')
-question = "How does the level of education affect earnings?"
+data = pd.read_csv('proximity.csv')
+question = "How does the education affect earnings using being near 4-year college and near 2-year college as instruments?"
 assignment_style = 'observational' # 'observational', 'randomized'
 latent_confounders = False  # Set to True if latent confounders are present
 
+treatment = "educ"
+outcome = "wage"
+time_variable = "None"
+group_variable = "None"
+running_variable = "None"
+cutoff_value = "None"
+inference_algorithm = "IV"
+instruments = ["nearc2","nearc4"]
+adjustment_set = []
+mediators = []
+
+numeric_data = full_preprocess(data)
+
 # Variables automated by LLM
-context = data.head(3).to_string(index=False)
-treatment = llm_query.create_chat_completion(
-    messages = [
-        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **treatment variable** — the variable being manipulated or used as the cause in a causal question. Be sure to choose the **single most appropriate column name** that best represents the treatment, and your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words. For example, if the question asks how does rain impact temperature, your response should be the column name most closely related to rain."},
-        {"role": "user", "content": question}
-    ], temperature = 0.1, thinking = False
-)
-outcome = llm_query.create_chat_completion(
-    messages = [
-        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **outcome variable** — the variable that is affected or influenced by the treatment in a question. Be sure to choose the **single most appropriate column name** that best represents the outcome, and your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words. For example, if the question asks how does rain impact temperature, your response should be the column name most closely related to temperature."},
-        {"role": "user", "content": question}
-    ], temperature = 0.1, thinking = False
-)
-time_variable = llm_query.create_chat_completion(
-    messages=[
-        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **time variable** — the (often binary) variable used for DiD that represents whether the observation is from before or after the implementation of the policy. Be sure to reply **None** if no variable seems appropriate, or choose the **single most appropriate column name** that best represents the outcome. Your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words."},
-        {"role": "user", "content": "What is the time variable in the data? Reply None if there is no time variable."}
-    ], temperature = 0.1, thinking = False
-)
-group_variable = llm_query.create_chat_completion(
-    messages=[
-        {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **group variable** — the (often binary) variable used for DiD that represents whether the observation is part of the control or treatment group. Be sure to reply **None** if no variable seems appropriate, or choose the **single most appropriate column name** that best represents the outcome. Your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words."},
-        {"role": "user", "content": "What is the group variable in the data? Reply None if there is no group variable."}
-    ], temperature = 0.1, thinking = False
-)
+context = numeric_data.head(3).to_string(index=False)
+# treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediators, running_variable, cutoff_value = parse_intent(question, context)
 print("treatment:", treatment)
 print("outcome:", outcome)
 print("time variable:", time_variable)
 print("group variable:", group_variable)
+print("inference algorithm:", inference_algorithm)
+print("instruments:", instruments)
 
-# Data preprocessing (Drop non-numeric columns and missing values, and columns with high correlation)
-mapping = {
-    True:  1,
-    False: 0,
-    'True':  1,
-    'False': 0,
-    'Yes': 1,
-    'No':  0
-}
-data=data.replace(mapping, inplace=True)
-numeric_data = data.select_dtypes(include=[np.number])
-numeric_data = numeric_data.dropna()
-corr = numeric_data.corr().abs()
-upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-to_drop = [col for col in upper.columns if any(upper[col] > 0.999)]
-numeric_data = numeric_data.drop(columns=to_drop)
-
-result = LoRD3.detect(
-    numeric_data,
-    treatment_col=treatment,
-    covariate_cols=[],
-    poly_degree=2,
-    k=50
-)
-running_variable = str(result.variable)
-cutoff_value = str(result.cutoff)
-print(running_variable)
-print(cutoff_value)
-
+# alpha = 0.05
+# if latent_confounders:
+#     nx_graph = fci.run(numeric_data.values)
+# else:
+#     mapping = dict(enumerate(numeric_data.columns))
+#     cg = pc(numeric_data.values, alpha=alpha, ci_test=kci)
+#     nx_graph = nx.from_numpy_array(cg.G.graph, create_using=nx.DiGraph)
+#     nx.relabel_nodes(nx_graph, mapping, copy=False)
+# nx_graph = notears.run(numeric_data)
 nx_graph = run_discovery_algorithm(numeric_data, latent_confounders)
-sample_size = data.shape[0]
+sample_size = numeric_data.shape[0]
 covariates = list(set(nx_graph.nodes) - {treatment, outcome})
+for edge in nx_graph.edges():
+    print(edge)
 
-result = run_inference_algorithm(
-    data,
-    treatment,
-    outcome,
-    covariates,
-    nx_graph,
-    sample_size,
-    assignment_style,
-    latent_confounders,
-    cutoff_value,
-    time_variable,
-    group_variable,
-    running_variable
+if not inference_algorithm:
+    result = run_inference_algorithm(
+        numeric_data,
+        treatment,
+        outcome,
+        covariates,
+        nx_graph,
+        sample_size,
+        assignment_style,
+        latent_confounders,
+        cutoff_value,
+        time_variable,
+        group_variable,
+        running_variable
 )
+else:
+    result = match_algorithm(inference_algorithm, numeric_data, treatment, outcome, covariates, sample_size,
+                    cutoff_value, time_variable, group_variable, running_variable, 
+                    mediators, instruments, adjustment_set)
 
 print(result)

@@ -3,10 +3,9 @@ import networkx as nx
 from lingam import DirectLiNGAM
 
 def run(
-    df: pd.DataFrame,
-    max_iter: int = 1000
+    df: pd.DataFrame
 ):
-    model = DirectLiNGAM(max_iter=max_iter)
+    model = DirectLiNGAM()
     model.fit(df.values)
 
     # adjacency_matrix_[i,j] = causal effect i → j

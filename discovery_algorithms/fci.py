@@ -13,7 +13,7 @@ def _label(node, col_names):
 def run(
     df,
     alpha=0.05,
-    indep_test="fisherz"
+    indep_test="kci"
 ):
     pag, _ = fci(
         df,
