@@ -2,12 +2,11 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from llm_query import parse_intent
-from inference_classifier import run_inference_algorithm, recommend_inference_algorithm, match_algorithm
+from inference_classifier import run_inference_algorithm, match_algorithm
 from discovery_classifier import run_discovery_algorithm
 from causallearn.search.ConstraintBased.PC import pc
 from causallearn.utils.cit import kci
 from discovery_algorithms import fci
-from causallearn.utils.PDAG2DAG import pdag2dag
 from discovery_algorithms import notears
 from preprocessing import full_preprocess
 
@@ -17,28 +16,30 @@ question = "How does the education affect earnings using being near 4-year colle
 assignment_style = 'observational' # 'observational', 'randomized'
 latent_confounders = False  # Set to True if latent confounders are present
 
-treatment = "educ"
-outcome = "wage"
-time_variable = "None"
-group_variable = "None"
-running_variable = "None"
-cutoff_value = "None"
-inference_algorithm = "IV"
-instruments = ["nearc2","nearc4"]
-adjustment_set = []
-mediators = []
+# treatment = "educ"
+# outcome = "wage"
+# time_variable = "None"
+# group_variable = "None"
+# running_variable = "None"
+# cutoff_value = "None"
+# inference_algorithm = "IV"
+# instruments = ["nearc2","nearc4"]
+# adjustment_set = []
+# mediators = []
 
 numeric_data = full_preprocess(data)
 
 # Variables automated by LLM
 context = numeric_data.head(3).to_string(index=False)
-# treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediators, running_variable, cutoff_value = parse_intent(question, context)
+
+treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediators, adjustment_set, running_variable, cutoff_value = parse_intent(question, context)
 print("treatment:", treatment)
 print("outcome:", outcome)
 print("time variable:", time_variable)
 print("group variable:", group_variable)
 print("inference algorithm:", inference_algorithm)
 print("instruments:", instruments)
+print("mediators:", mediators)
 
 # alpha = 0.05
 # if latent_confounders:

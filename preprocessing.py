@@ -34,7 +34,7 @@ def drop_highly_correlated(df):
     numeric_data = df.select_dtypes(include=np.number)
     corr = numeric_data.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-    to_drop = [col for col in upper.columns if any(upper[col] > 0.9)]
+    to_drop = [col for col in upper.columns if any(upper[col] > 0.99)]
     if to_drop:
         df.drop(columns=to_drop, inplace=True)
         print(f"Dropped {len(to_drop)} highly correlated columns: {to_drop}")

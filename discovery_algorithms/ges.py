@@ -1,5 +1,5 @@
 import networkx as nx
-from causallearn.search.ScoreBased.GES import ges           # GES core[6]
+from causallearn.search.ScoreBased.GES import ges
 from causallearn.graph.Endpoint import Endpoint
 
 def _label(node, col_names):
