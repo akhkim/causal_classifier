@@ -125,7 +125,7 @@ def parse_intent(question, context):
             → The time variable might be a column indicating years ≥2015 vs. years <2015
 
             """},
-            {"role": "user", "content": "What is the time variable in the data? Reply None if there is no time variable."}
+            {"role": "user", "content": "What is the time variable in the data? Reply None if there is no time variable. Remember to focus entirely on the variable NAME."}
         ],
         temperature = 0.1,
         thinking = False
@@ -143,39 +143,46 @@ def parse_intent(question, context):
         ], temperature = 0.1, thinking = False
     )
 
-    if inference_algorithm == "IV":
-        response = create_chat_completion(
-        messages=[
-            {"role":"system", "content":f"""
-            You are a causal-inference expert. Given:
+    response = create_chat_completion(
+    messages=[
+        {"role": "system", "content": f"""
+        You are a causal‐inference domain expert. Given:
 
-            • CSV header and 2 sample rows:
-            {context}
+        • A CSV header and sample data rows:
+        {context}
 
-            • Treatment: {treatment}
-            • Outcome: {outcome}
-            • Question core: "{question}"
+        • A treatment variable: {treatment}
+        • An outcome variable: {outcome}
+        • The user’s causal question: "{question}"
 
-            Definition:
-            An *instrument* influences {treatment} but has no direct effect on {outcome} except through {treatment}.
+        Definition:
+        An *instrumental variable* must satisfy both:
+        1. Relevance: it causes or predicts the treatment.
+        2. Exclusion: it does not directly affect the outcome except through the treatment.
 
-            Example (unrelated):
-            “How does exercise frequency affect cholesterol using gym-distance as an instrument?”
-            → instrument: gym_distance
+        Instructions:
+        1. Use domain knowledge and the provided data context.
+        2. Identify variables that unambiguously meet both criteria.
+        3. Do not include any variables that measure time, individual demographics (e.g. age, race, gender), or pure interaction terms.
+        However, access-based measures or regional instruments (e.g., distance to services or geographic variation) can qualify if they satisfy both criteria.
+        4. Return **only** a comma-separated list of column names — e.g., `Z1,Z2` — or reply exactly `None`.
+        5. Do not add any other text or symbols.
 
-            Instructions:
-            1. Use both header and samples to infer variable roles.
-            2. Return only column names (comma list) or "None".
-            """},
-            {"role":"user", "content":"Identify the instruments. Make sure you only include the instruments you are certain are instruments, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific instruments, include the variables that best represents those instruments regardless of its validity."}],
-        temperature = 0.1, thinking = False
+        Example:
+        Question: "What is the effect of years of schooling on wage, using proximity to a college as an instrument?"
+        → nearc2,nearc4
+
+        """},
+        {"role":"user", "content":"Identify the instruments. Make sure you only include the instruments you are certain are instruments, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific instruments, include the variables that best represents those instruments regardless of its validity."}],
+    temperature = 0.1, thinking = False
     )
     instrument_resp = response.strip()
     if instrument_resp != "None":
         for instrument in instrument_resp.split(","):
             instruments.append(instrument.strip())
+        inference_algorithm = "IV"
         
-    if instruments != []:
+    if instruments == []:
         response = create_chat_completion(
         messages=[
             {"role":"system", "content":f"""
@@ -201,11 +208,12 @@ def parse_intent(question, context):
             """},
             {"role":"user", "content":"Identify mediators. Make sure you only include the mediators you are certain are mediators, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific mediators, include the variables that best represents those mediators regardless of its validity."}],
         temperature = 0.1, thinking = False
-    )
-    mediators_resp = response.strip()
-    if mediators_resp != "None":
-        for med in mediators_resp.split(","):
-            mediator.append(med.strip())
+        )
+        mediators_resp = response.strip()
+        if mediators_resp != "None":
+            for med in mediators_resp.split(","):
+                mediator.append(med.strip())
+        inference_algorithm = "Frontdoor Adjustment"
 
     if inference_algorithm == "RDD":
         running_variable = create_chat_completion(
@@ -222,6 +230,3 @@ def parse_intent(question, context):
         )
     
     return treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediator, adjustment_set, running_variable, cutoff_value
-
-    
-

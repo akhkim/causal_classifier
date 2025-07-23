@@ -32,7 +32,7 @@ def detect_likelihood(df):
         best_name = f.get_best(method="sumsquare_error").popitem()[0]
 
         if best_name == "norm":
-            ad_stat, p_val = normal_ad(data)
+            _, p_val = normal_ad(data)
         else:
             frozen_dist = getattr(stats, best_name)
             res = stats.goodness_of_fit(

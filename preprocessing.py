@@ -34,13 +34,26 @@ def drop_highly_correlated(df):
     numeric_data = df.select_dtypes(include=np.number)
     corr = numeric_data.corr().abs()
     upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-    to_drop = [col for col in upper.columns if any(upper[col] > 0.99)]
+    to_drop = [col for col in upper.columns if any(upper[col] > 0.9)]
     if to_drop:
         df.drop(columns=to_drop, inplace=True)
         print(f"Dropped {len(to_drop)} highly correlated columns: {to_drop}")
     else:
         print("No highly correlated numeric columns to drop.")
     
+    return df
+
+def drop_one_hot_dummy_variables(df):
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    X = df[numeric_cols].dropna()
+
+    # 4. Dummy-set check (optional, for columns named like 'reg*')
+    dummies = [c for c in numeric_cols if c.startswith("reg")]
+    if dummies:
+        row_sums = X[dummies].sum(axis=1).unique()
+        if len(row_sums) == 1:
+            df = df.drop(columns=dummies)
+
     return df
 
 def encode_categoricals(df, threshold=0.1):
@@ -106,6 +119,7 @@ def full_preprocess(df):
     df = handle_missing(df)
     df, codebook = encode_categoricals(df, threshold=0.05)
     df = drop_highly_correlated(df)
+    df = drop_one_hot_dummy_variables(df)
     save_processed(df)
     save_codebook(codebook)
 

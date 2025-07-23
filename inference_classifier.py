@@ -60,10 +60,9 @@ def find_instruments(dag, treatment, outcome):
     if not nx.is_directed_acyclic_graph(dag):
         print(f"Warning: Graph contains cycles, attempting to remove cycles for instrument detection")
         
-        # Option 1: Try to break cycles by removing some edges
+        # Try to break cycles by removing some edges
         dag_copy = dag.copy()
         try:
-            # Remove cycles by finding and breaking them
             cycles = list(nx.simple_cycles(dag_copy))
             if cycles:
                 # Remove one edge from each cycle to break it

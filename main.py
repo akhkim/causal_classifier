@@ -9,10 +9,11 @@ from causallearn.utils.cit import kci
 from discovery_algorithms import fci
 from discovery_algorithms import notears
 from preprocessing import full_preprocess
+from inference_algorithms.test_assumptions import run_all_tests
 
 # Variables the user has to provide
 data = pd.read_csv('proximity.csv')
-question = "How does the education affect earnings using being near 4-year college and near 2-year college as instruments?"
+question = "How does the education affect earnings?"
 assignment_style = 'observational' # 'observational', 'randomized'
 latent_confounders = False  # Set to True if latent confounders are present
 
@@ -55,6 +56,8 @@ sample_size = numeric_data.shape[0]
 covariates = list(set(nx_graph.nodes) - {treatment, outcome})
 for edge in nx_graph.edges():
     print(edge)
+
+run_all_tests(numeric_data, treatment, outcome, covariates, group_variable, instruments, cutoff_value, running_variable, mediators)
 
 if not inference_algorithm:
     result = run_inference_algorithm(
