@@ -22,7 +22,7 @@ def estimate(
     )
     return {
         'estimate': est.value,
-        'std_error': est.get_std_error(),
+        'std_error': est.get_standard_error(),
         'model': est
     }
 

@@ -130,51 +130,76 @@ def parse_intent(question, context):
         temperature = 0.1,
         thinking = False
     )
-    group_variable = create_chat_completion(
+    running_variable = create_chat_completion(
         messages=[
-            {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **group variable** — the (often binary) variable used for DiD that represents whether the observation is part of the control or treatment group. Be sure to reply **None** if no variable seems appropriate, or choose the **single most appropriate column name** that best represents the outcome. Your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words."},
-            {"role": "user", "content": "What is the group variable in the data? Reply None if there is no group variable."}
+            {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}, and attached is the causal question the user desires to answer:\n\n{question}. Does the user specify a specific variable to use as the running variable for RDD? If yes, return the name of the variable ONLY. Do NOT add any additional descriptions or make it a full sentence response. Else, return **None**."},
+            {"role": "user", "content": "Is there a specific running variable the user wants to use?"}
         ], temperature = 0.1, thinking = False
+    )
+    cutoff_value = create_chat_completion(
+        messages=[
+            {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}, and attached is the causal question the user desires to answer:\n\n{question}. Does the user specify a specific value for the cutoff of the running variable for RDD? If yes, return the value ONLY. Do NOT add any additional descriptions or make it a full sentence response. Else, return **None**."},
+            {"role": "user", "content": "Is there a specific cutoff value for the running variable?"}
+        ], temperature = 0.1, thinking = False
+    )
+    group_variable = create_chat_completion(
+            messages=[
+                {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}. When the user asks a question, determine which column in the table corresponds to the **group variable** — the (often binary) variable used for DiD that represents whether the observation is part of the control or treatment group. Be sure to reply **None** if no variable seems appropriate, or choose the **single most appropriate column name** that best represents the outcome. Your response must be **only the exact column name** from the table. Do NOT add any explanation or extra words."},
+                {"role": "user", "content": "What is the group variable in the data? Reply None if there is no group variable."}
+            ], temperature = 0.1, thinking = False
     )
     inference_algorithm = create_chat_completion(
         messages=[
-            {"role": "system", "content": f"Attached is the causal question the user desires to answer:\n\n{question}. Does the user specify a causal inference algorithm to use out of DiD, DML, Frontdoor Adjustment, G Computation, IV, OLS, Propensity Score, and RDD? If yes, return the name of the algorithm ONLY, exactly how I spelled it when labelling the options. If the question mentions using an instrument, return **IV**. If the question mentions using a mediator, return **Frontdoor Adjustment**. If the question mentions using a running variable, return **RDD**. Else, return **None**"},
+            {"role": "system", "content": f"""Attached is the causal question the user desires to answer:\n\n{question}. 
+            Which causal inference algorithm should we use to answer this question? 
+                
+            If the user specifies a causal inference algorithm to use out of DiD, DML, Frontdoor Adjustment, G Computation, IV, OLS, Propensity Score, and RDD, return the name of the algorithm exactly how I spelled it when labelling the options, and your confidence in that decision in the format provided below. 
+            Else, if the user does not specify an algorithm, use your best judgment to determine the most appropriate algorithm based on the question and the context provided, and provide an appropriate confidence in your decision.
+            If the question does not specify an algorithm, and you don't have enough information to determine the best algorithm, answer None.
+                
+            Return your response as a valid JSON object in the following format:
+            {{ 
+            "inference_algorithm": "ALGORITHM_NAME" or "None",
+            "confidence": "100" if the user specifies an algorithm in their question, "HIGH" if you are confident in the algorithm, "MID" if you are somewhat confident, "LOW" if you are not sure"
+            }}
+            
+            """},
             {"role": "user", "content": "Is there a specific causal inference algorithm the user wants to use?"}
         ], temperature = 0.1, thinking = False
     )
 
     response = create_chat_completion(
-    messages=[
-        {"role": "system", "content": f"""
-        You are a causal‐inference domain expert. Given:
+        messages=[
+            {"role": "system", "content": f"""
+            You are a causal‐inference domain expert. Given:
 
-        • A CSV header and sample data rows:
-        {context}
+            • A CSV header and sample data rows:
+            {context}
 
-        • A treatment variable: {treatment}
-        • An outcome variable: {outcome}
-        • The user’s causal question: "{question}"
+            • A treatment variable: {treatment}
+            • An outcome variable: {outcome}
+            • The user’s causal question: "{question}"
 
-        Definition:
-        An *instrumental variable* must satisfy both:
-        1. Relevance: it causes or predicts the treatment.
-        2. Exclusion: it does not directly affect the outcome except through the treatment.
+            Definition:
+            An *instrumental variable* must satisfy both:
+            1. Relevance: it causes or predicts the treatment.
+            2. Exclusion: it does not directly affect the outcome except through the treatment.
 
-        Instructions:
-        1. Use domain knowledge and the provided data context.
-        2. Identify variables that unambiguously meet both criteria.
-        3. Do not include any variables that measure time, individual demographics (e.g. age, race, gender), or pure interaction terms.
-        However, access-based measures or regional instruments (e.g., distance to services or geographic variation) can qualify if they satisfy both criteria.
-        4. Return **only** a comma-separated list of column names — e.g., `Z1,Z2` — or reply exactly `None`.
-        5. Do not add any other text or symbols.
+            Instructions:
+            1. Use domain knowledge and the provided data context.
+            2. Identify variables that unambiguously meet both criteria.
+            3. Do not include any variables that measure time, individual demographics (e.g. age, race, gender), or pure interaction terms.
+            However, access-based measures or regional instruments (e.g., distance to services or geographic variation) can qualify if they satisfy both criteria.
+            4. Return **only** a comma-separated list of column names — e.g., `Z1,Z2` — or reply exactly `None`.
+            5. Do not add any other text or symbols.
 
-        Example:
-        Question: "What is the effect of years of schooling on wage, using proximity to a college as an instrument?"
-        → nearc2,nearc4
+            Example:
+            Question: "What is the effect of education on wage?"
+            → proximity_to_school, parental_education
 
-        """},
-        {"role":"user", "content":"Identify the instruments. Make sure you only include the instruments you are certain are instruments, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific instruments, include the variables that best represents those instruments regardless of its validity."}],
-    temperature = 0.1, thinking = False
+            """},
+            {"role":"user", "content":"Identify the instruments. Make sure you only include the instruments you are certain are instruments, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific instruments, include the variables that best represents those instruments regardless of its validity."}
+        ], temperature = 0.1, thinking = False
     )
     instrument_resp = response.strip()
     if instrument_resp != "None":
@@ -182,8 +207,7 @@ def parse_intent(question, context):
             instruments.append(instrument.strip())
         inference_algorithm = "IV"
         
-    if instruments == []:
-        response = create_chat_completion(
+    response = create_chat_completion(
         messages=[
             {"role":"system", "content":f"""
             You are a causal-inference expert. Given:
@@ -206,27 +230,55 @@ def parse_intent(question, context):
             1. Rely on header and sample values for semantics.
             2. Return only column names (comma list) or "None".
             """},
-            {"role":"user", "content":"Identify mediators. Make sure you only include the mediators you are certain are mediators, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific mediators, include the variables that best represents those mediators regardless of its validity."}],
-        temperature = 0.1, thinking = False
-        )
-        mediators_resp = response.strip()
-        if mediators_resp != "None":
-            for med in mediators_resp.split(","):
-                mediator.append(med.strip())
-        inference_algorithm = "Frontdoor Adjustment"
+            {"role":"user", "content":"Identify mediators. Make sure you only include the mediators you are certain are mediators, based off the domain knowledge regarding each of the variables. If the question explicitly mentions specific mediators, include the variables that best represents those mediators regardless of its validity."}
+        ], temperature = 0.1, thinking = False
+    )
+    mediators_resp = response.strip()
+    if mediators_resp != "None":
+        for med in mediators_resp.split(","):
+            mediator.append(med.strip())
 
-    if inference_algorithm == "RDD":
-        running_variable = create_chat_completion(
+
+    graph = create_chat_completion(
         messages=[
-            {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}, and attached is the causal question the user desires to answer:\n\n{question}. Does the user specify a specific variable to use as the running variable for RDD? If yes, return the name of the variable ONLY. Do NOT add any additional descriptions or make it a full sentence response. Else, return **None**."},
-            {"role": "user", "content": "Is there a specific running variable the user wants to use?"}
-            ], temperature = 0.1, thinking = False
-        )
-        cutoff_value = create_chat_completion(
-        messages=[
-            {"role": "system", "content": f"Below is a CSV table containing variable names and sample data:\n\n{context}, and attached is the causal question the user desires to answer:\n\n{question}. Does the user specify a specific value for the cutoff of the running variable for RDD? If yes, return the value ONLY. Do NOT add any additional descriptions or make it a full sentence response. Else, return **None**."},
-            {"role": "user", "content": "Is there a specific cutoff value for the running variable?"}
-            ], temperature = 0.1, thinking = False
-        )
+            {"role":"system", "content":f"""
+            You are an expert in causal inference. Your task is to construct a causal graph to help answer a user query.
+
+            Here are the treatment and outcome variables:
+            Treatment: {treatment}
+            Outcome: {outcome}
+
+            Here are the available variables and an example row in the dataset:
+            {context}
+
+            Based on your background knowledge on the available variables, construct a causal graph that captures the relationships between the treatment, outcome, and other relevant variables.
+
+            Use only variables present in the dataset. Do not invent or assume any variables. However, not all variables need to be included—only those that are relevant to the causal relationships should appear in the graph.
+            If you are uncertain about a causal relationship, do not include it in the graph. ONLY include relationships you are confident about.
+
+            Return the causal graph in DOT format. The DOT format should include:
+            - Nodes for each included variable.
+            - Directed edges representing causal relationships among variables.
+
+            Also return the list of edges in the format "A -> B", where A and B are variable names.
+
+            Here is an example of the DOT format:
+            digraph G {{
+                A -> B;
+                B -> C;
+                A -> C;
+            }}
+
+            And the corresponding list of edges:
+            ["A -> B", "B -> C", "A -> C"]
+
+            Return your response as a valid JSON object in the following format:
+            {{ 
+            "causal_graph": "DOT_FORMAT_STRING",
+            "edges": ["EDGE_1", "EDGE_2", ...] 
+            }}
+            """}, {"role":"user", "content":"Construct an accurate causal graph based on the above information."}
+        ], temperature=0.1, thinking=False
+    )
     
-    return treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediator, adjustment_set, running_variable, cutoff_value
+    return treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediator, adjustment_set, running_variable, cutoff_value, graph

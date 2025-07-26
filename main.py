@@ -33,7 +33,7 @@ numeric_data = full_preprocess(data)
 # Variables automated by LLM
 context = numeric_data.head(3).to_string(index=False)
 
-treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediators, adjustment_set, running_variable, cutoff_value = parse_intent(question, context)
+treatment, outcome, time_variable, group_variable, inference_algorithm, instruments, mediators, adjustment_set, running_variable, cutoff_value, graph = parse_intent(question, context)
 print("treatment:", treatment)
 print("outcome:", outcome)
 print("time variable:", time_variable)
@@ -57,7 +57,7 @@ covariates = list(set(nx_graph.nodes) - {treatment, outcome})
 for edge in nx_graph.edges():
     print(edge)
 
-run_all_tests(numeric_data, treatment, outcome, covariates, group_variable, instruments, cutoff_value, running_variable, mediators)
+run_all_tests(nx_graph, numeric_data, treatment, outcome, covariates, group_variable, instruments, cutoff_value, running_variable, mediators)
 
 if not inference_algorithm:
     result = run_inference_algorithm(
